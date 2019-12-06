@@ -25,22 +25,48 @@ const getMetaData = async () => {
   return dt.json()
 }
 
+//code from https://github.com/tensorflow/tfjs-examples/blob/482226b15a757f39871038f35b3b8aad7729e594/sentiment/index.js
+//make sequences the same length. pre-padding is the default
+const padSequences = (sequences, metadata) => {
+  return sequences.map(seq => {
+    // sequences longer than metadata.max_len truncated at the start of sequence
+    if (seq.length > metadata.max_len) {
+      seq.splice(0, seq.length - metadata.max_len);
+    }
+    // sequences shorter than metadata.max_len padded before sequence
+    if (seq.length < metadata.max_len) {
+      const pad = [];
+      for (let i = 0; i < metadata.max_len - seq.length; ++i) {
+        pad.push(0);
+      }
+      seq = pad.concat(seq);
+    }
+    return seq;
+  });
+}
+
 const predict = (text, model, metadata) => {
   //tokenize text: remove non-alphanumeric chars besides spaces, apos
-  var trimmed = text.trim().toLowerCase().replace(/(\.|\,|\!)/g, "").split(/\s+/g);
-  //look up word indices
-  const inputBuffer = tf.buffer([1, metadata.max_len], "float32"); //buffer is an array of integers defining output tensor shape, type
-  //fill buffer with trimmed words and their indices
-  trimmed.forEach((word, i) => inputBuffer.set(metadata.word_index[word] + metadata.index_from, 0, i));
-  const input = inputBuffer.toTensor(); //returns Tensor obj
+  var trimmed = text.trim().toLowerCase().replace(/(\.|\,|\!)/g, '').split(' ');
+  //Convert the words to a sequence of word indices so we can truncate and pad
+  const sequence = trimmed.map(word => {
+    let wordIndex = metadata.word_index[word] + metadata.index_from;
+    if (wordIndex > metadata.vocabulary_size) {
+      wordIndex = 2; //oov_index
+    }
+    console.log(`wordIndex ${wordIndex}`);
+    return wordIndex;
+  });
+  console.log(`sequence ${sequence}`);
+  // Perform truncation and padding.
+  const paddedSequence = padSequences([sequence], metadata);
+  console.log(`paddedSeq ${paddedSequence}`);
+  const input = tf.tensor2d(paddedSequence, [1, metadata.max_len]);
+
   const predictOut = model.predict(input);
-  let positivity = predictOut.dataSync()[0]; //output data retrieved
+  const score = predictOut.dataSync()[0];
   predictOut.dispose();
-  //some words aren't in the English dictionary and TFJS doesn't like these words
-  if(isNaN(positivity)) {
-    return  0;
-  }
-  return positivity;
+  return score;
 }
 
 async function run(text) {
